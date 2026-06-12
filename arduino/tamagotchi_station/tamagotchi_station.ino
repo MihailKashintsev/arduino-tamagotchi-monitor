@@ -64,6 +64,15 @@ public:
     command(0x80 | (col + rowOffsets[row]));
   }
 
+  void createChar(byte location, const byte charmap[]) {
+    location &= 0x07;
+    command(0x40 | (location << 3));
+    for (byte i = 0; i < 8; i++) {
+      write(charmap[i]);
+    }
+    command(0x80);
+  }
+
   size_t write(uint8_t value) override {
     send(value, true);
     return 1;
@@ -105,6 +114,23 @@ private:
 DHT dht(DHT_PIN, DHT_TYPE);
 SoftwareSerial ble(BLE_RX_PIN, BLE_TX_PIN);
 I2cLcd lcd(LCD_ADDRESS_PRIMARY);
+
+const byte GLYPH_A[8] = {0x00, 0x0E, 0x01, 0x0F, 0x11, 0x0F, 0x00, 0x00};
+const byte GLYPH_V[8] = {0x1E, 0x11, 0x11, 0x1E, 0x11, 0x11, 0x1E, 0x00};
+const byte GLYPH_G[8] = {0x1F, 0x10, 0x10, 0x10, 0x10, 0x10, 0x10, 0x00};
+const byte GLYPH_D[8] = {0x07, 0x09, 0x09, 0x09, 0x09, 0x1F, 0x11, 0x00};
+const byte GLYPH_E[8] = {0x00, 0x0E, 0x11, 0x1F, 0x10, 0x0E, 0x00, 0x00};
+const byte GLYPH_ZH[8] = {0x15, 0x15, 0x0E, 0x04, 0x0E, 0x15, 0x15, 0x00};
+const byte GLYPH_I[8] = {0x11, 0x13, 0x15, 0x15, 0x19, 0x11, 0x11, 0x00};
+const byte GLYPH_L[8] = {0x07, 0x09, 0x09, 0x09, 0x11, 0x11, 0x11, 0x00};
+const byte GLYPH_M[8] = {0x11, 0x1B, 0x15, 0x15, 0x11, 0x11, 0x11, 0x00};
+const byte GLYPH_N[8] = {0x11, 0x11, 0x11, 0x1F, 0x11, 0x11, 0x11, 0x00};
+const byte GLYPH_O[8] = {0x00, 0x0E, 0x11, 0x11, 0x11, 0x0E, 0x00, 0x00};
+const byte GLYPH_P[8] = {0x1F, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x00};
+const byte GLYPH_R[8] = {0x1E, 0x11, 0x11, 0x1E, 0x10, 0x10, 0x10, 0x00};
+const byte GLYPH_T[8] = {0x1F, 0x04, 0x04, 0x04, 0x04, 0x04, 0x04, 0x00};
+const byte GLYPH_TS[8] = {0x12, 0x12, 0x12, 0x12, 0x1F, 0x01, 0x01, 0x00};
+const byte GLYPH_YA[8] = {0x0F, 0x11, 0x11, 0x0F, 0x05, 0x09, 0x11, 0x00};
 
 enum ScreenMode : byte {
   SCREEN_CLIMATE,
@@ -272,12 +298,19 @@ void handleCommand(const char* command) {
   if (strncmp(command, "TIME:", 5) == 0) {
     syncClock(command + 5);
     drawCurrentScreen();
+    sendSnapshot();
     return;
   }
 
   if (strncmp(command, "WEATHER:", 8) == 0) {
     syncWeather(command + 8);
     drawCurrentScreen();
+    sendSnapshot();
+    return;
+  }
+
+  if (strcmp(command, "PING") == 0) {
+    sendSnapshot();
   }
 }
 
@@ -335,8 +368,13 @@ void drawCurrentScreen() {
 }
 
 void drawClimateScreen() {
+  loadClimateGlyphs();
   lcd.setCursor(0, 0);
-  lcd.print(F("Temp: "));
+  lcd.write(byte(0));  // T
+  lcd.write(byte(1));  // e
+  lcd.write(byte(2));  // m
+  lcd.write(byte(3));  // p
+  lcd.print(F(": "));
   if (isnan(temperatureC)) {
     lcd.print(F("--.-"));
   } else {
@@ -345,7 +383,11 @@ void drawClimateScreen() {
   lcd.print(F(" C"));
 
   lcd.setCursor(0, 1);
-  lcd.print(F("Hum:  "));
+  lcd.write(byte(4));  // V
+  lcd.write(byte(5));  // l
+  lcd.write(byte(6));  // zh
+  lcd.write(byte(7));  // n
+  lcd.print(F(":  "));
   if (isnan(humidityPercent)) {
     lcd.print(F("--"));
   } else {
@@ -355,19 +397,27 @@ void drawClimateScreen() {
 }
 
 void drawPetScreen() {
+  loadPetGlyphs();
   lcd.setCursor(0, 0);
-  lcd.print(F("Pet "));
+  lcd.write(byte(0));  // P
+  lcd.write(byte(1));  // i
+  lcd.write(byte(2));  // t
+  lcd.write(byte(3));  // o
+  lcd.write(byte(4));  // m
+  lcd.write(byte(5));  // e
+  lcd.write(byte(6));  // ts
+  lcd.print(F(" "));
   lcd.print((hunger < 30 || happiness < 30) ? F(":(") : F(":)"));
-  lcd.print(F(" Food "));
-  print3Digits(lcd, hunger);
 
   lcd.setCursor(0, 1);
-  lcd.print(F("Mood "));
+  lcd.print(F("Food"));
+  print3Digits(lcd, hunger);
+  lcd.print(F(" Mood"));
   print3Digits(lcd, happiness);
-  lcd.print(F("% Press"));
 }
 
 void drawClockScreen() {
+  loadClockGlyphs();
   int year;
   byte month;
   byte day;
@@ -377,7 +427,12 @@ void drawClockScreen() {
   getClock(year, month, day, hour, minute, second);
 
   lcd.setCursor(0, 0);
-  lcd.print(F("Time "));
+  lcd.write(byte(0));  // V
+  lcd.write(byte(1));  // r
+  lcd.write(byte(2));  // e
+  lcd.write(byte(3));  // m
+  lcd.write(byte(4));  // ya
+  lcd.print(F(" "));
   printTwoDigits(lcd, hour);
   lcd.print(F(":"));
   printTwoDigits(lcd, minute);
@@ -388,7 +443,11 @@ void drawClockScreen() {
   if (!clockSynced) {
     lcd.print(F("Sync from app"));
   } else {
-    lcd.print(F("Date "));
+    lcd.write(byte(5));  // D
+    lcd.write(byte(6));  // a
+    lcd.write(byte(7));  // t
+    lcd.write(byte(6));  // a
+    lcd.print(F(" "));
     printTwoDigits(lcd, day);
     lcd.print(F("."));
     printTwoDigits(lcd, month);
@@ -398,11 +457,17 @@ void drawClockScreen() {
 }
 
 void drawWeatherScreen() {
+  loadWeatherGlyphs();
   lcd.setCursor(0, 0);
   if (weatherSynced) {
     lcd.print(weatherCity);
   } else {
-    lcd.print(F("Weather"));
+    lcd.write(byte(0));  // P
+    lcd.write(byte(1));  // o
+    lcd.write(byte(2));  // g
+    lcd.write(byte(1));  // o
+    lcd.write(byte(3));  // d
+    lcd.write(byte(4));  // a
   }
 
   lcd.setCursor(0, 1);
@@ -417,6 +482,46 @@ void drawWeatherScreen() {
     }
     lcd.print(F(" C"));
   }
+}
+
+void loadClimateGlyphs() {
+  lcd.createChar(0, GLYPH_T);
+  lcd.createChar(1, GLYPH_E);
+  lcd.createChar(2, GLYPH_M);
+  lcd.createChar(3, GLYPH_P);
+  lcd.createChar(4, GLYPH_V);
+  lcd.createChar(5, GLYPH_L);
+  lcd.createChar(6, GLYPH_ZH);
+  lcd.createChar(7, GLYPH_N);
+}
+
+void loadPetGlyphs() {
+  lcd.createChar(0, GLYPH_P);
+  lcd.createChar(1, GLYPH_I);
+  lcd.createChar(2, GLYPH_T);
+  lcd.createChar(3, GLYPH_O);
+  lcd.createChar(4, GLYPH_M);
+  lcd.createChar(5, GLYPH_E);
+  lcd.createChar(6, GLYPH_TS);
+}
+
+void loadClockGlyphs() {
+  lcd.createChar(0, GLYPH_V);
+  lcd.createChar(1, GLYPH_R);
+  lcd.createChar(2, GLYPH_E);
+  lcd.createChar(3, GLYPH_M);
+  lcd.createChar(4, GLYPH_YA);
+  lcd.createChar(5, GLYPH_D);
+  lcd.createChar(6, GLYPH_A);
+  lcd.createChar(7, GLYPH_T);
+}
+
+void loadWeatherGlyphs() {
+  lcd.createChar(0, GLYPH_P);
+  lcd.createChar(1, GLYPH_O);
+  lcd.createChar(2, GLYPH_G);
+  lcd.createChar(3, GLYPH_D);
+  lcd.createChar(4, GLYPH_A);
 }
 
 void sendSnapshot() {

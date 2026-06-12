@@ -184,7 +184,7 @@ class _MonitorPageState extends State<MonitorPage> {
       );
 
       await characteristic.setNotifyValue(true);
-      _uartSubscription = characteristic.lastValueStream.listen(_handleBytes);
+      _uartSubscription = characteristic.onValueReceived.listen(_handleBytes);
       _connectionSubscription = device.connectionState.listen((state) {
         if (state == BluetoothConnectionState.disconnected && mounted) {
           setState(() {
@@ -198,7 +198,7 @@ class _MonitorPageState extends State<MonitorPage> {
       setState(() {
         _device = device;
         _uart = characteristic;
-        _status = 'Подключено к ${_deviceName(device)}';
+        _status = 'Подключено к ${_deviceName(device)}, жду данные Arduino';
       });
 
       try {
@@ -241,6 +241,9 @@ class _MonitorPageState extends State<MonitorPage> {
       final decoded = jsonDecode(line) as Map<String, dynamic>;
       setState(() {
         _snapshot = DeviceSnapshot.fromJson(decoded);
+        if (_device != null) {
+          _status = 'Получаю данные от ${_deviceName(_device!)}';
+        }
         _lastLine = line;
       });
     } catch (_) {
@@ -415,6 +418,7 @@ class _MonitorPageState extends State<MonitorPage> {
                     child: _StatusPanel(
                       status: _status,
                       connected: connected,
+                      hasArduinoData: _snapshot.updatedAt != null,
                       snapshot: _snapshot,
                       lastLine: _lastLine,
                       onFeed: connected ? () => _sendCommand('FEED') : null,
@@ -455,6 +459,7 @@ class _StatusPanel extends StatelessWidget {
   const _StatusPanel({
     required this.status,
     required this.connected,
+    required this.hasArduinoData,
     required this.snapshot,
     required this.lastLine,
     required this.onFeed,
@@ -467,6 +472,7 @@ class _StatusPanel extends StatelessWidget {
 
   final String status;
   final bool connected;
+  final bool hasArduinoData;
   final DeviceSnapshot snapshot;
   final String lastLine;
   final VoidCallback? onFeed;
@@ -487,23 +493,53 @@ class _StatusPanel extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         Card(
-          color: connected ? const Color(0xFFE2F2EC) : const Color(0xFFFFF0D7),
+          color: hasArduinoData
+              ? const Color(0xFFE2F2EC)
+              : connected
+              ? const Color(0xFFFFF7DD)
+              : const Color(0xFFFFF0D7),
           child: Padding(
             padding: const EdgeInsets.all(16),
-            child: Row(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Icon(
-                  connected
-                      ? Icons.bluetooth_connected
-                      : Icons.bluetooth_disabled,
-                  size: 28,
+                Row(
+                  children: [
+                    Icon(
+                      connected
+                          ? Icons.bluetooth_connected
+                          : Icons.bluetooth_disabled,
+                      size: 28,
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Text(
+                        status,
+                        style: Theme.of(context).textTheme.titleMedium,
+                      ),
+                    ),
+                  ],
                 ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Text(
-                    status,
-                    style: Theme.of(context).textTheme.titleMedium,
-                  ),
+                const SizedBox(height: 12),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    _StateChip(
+                      icon: Icons.bluetooth,
+                      label: connected
+                          ? 'BLE модуль подключен'
+                          : 'BLE отключен',
+                      active: connected,
+                    ),
+                    _StateChip(
+                      icon: Icons.developer_board,
+                      label: hasArduinoData
+                          ? 'Arduino присылает данные'
+                          : 'Жду JSON от Arduino',
+                      active: hasArduinoData,
+                    ),
+                  ],
                 ),
               ],
             ),
@@ -652,6 +688,35 @@ class _StatusPanel extends StatelessWidget {
           ),
         ),
       ],
+    );
+  }
+}
+
+class _StateChip extends StatelessWidget {
+  const _StateChip({
+    required this.icon,
+    required this.label,
+    required this.active,
+  });
+
+  final IconData icon;
+  final String label;
+  final bool active;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    return Chip(
+      avatar: Icon(
+        icon,
+        size: 18,
+        color: active ? colors.onPrimaryContainer : colors.onSurfaceVariant,
+      ),
+      label: Text(label),
+      backgroundColor: active
+          ? colors.primaryContainer
+          : colors.surfaceContainerHighest,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
     );
   }
 }

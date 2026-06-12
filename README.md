@@ -29,6 +29,8 @@ Install these Arduino IDE libraries first:
 
 The LCD code is built into the sketch and uses only Arduino `Wire`, so no `LiquidCrystal_I2C`, `Adafruit SSD1306`, or `Adafruit GFX` library is needed. The sketch tries LCD I2C addresses `0x27` and `0x3F`. If the button works inverted, change `BUTTON_ACTIVE_HIGH` to `false`.
 
+The LCD has no native Russian font, so the sketch draws the needed Cyrillic labels as custom 5x8 LCD glyphs. HD44780 LCDs can hold only 8 custom glyphs at once, so the sketch reloads the glyph set for each screen.
+
 Controls:
 
 - Short button press: feed the Tamagotchi.
