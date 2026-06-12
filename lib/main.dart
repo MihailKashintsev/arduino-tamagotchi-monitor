@@ -427,6 +427,7 @@ class _MonitorPageState extends State<MonitorPage> {
                               'TIME:${DateTime.now().toIso8601String()}',
                             )
                           : null,
+                      onPing: connected ? () => _sendCommand('PING') : null,
                       weatherCityController: _weatherCityController,
                       weatherStatus: _weatherStatus,
                       isUpdatingWeather: _isUpdatingWeather,
@@ -464,6 +465,7 @@ class _StatusPanel extends StatelessWidget {
     required this.lastLine,
     required this.onFeed,
     required this.onSyncTime,
+    required this.onPing,
     required this.weatherCityController,
     required this.weatherStatus,
     required this.isUpdatingWeather,
@@ -477,6 +479,7 @@ class _StatusPanel extends StatelessWidget {
   final String lastLine;
   final VoidCallback? onFeed;
   final VoidCallback? onSyncTime;
+  final VoidCallback? onPing;
   final TextEditingController weatherCityController;
   final String weatherStatus;
   final bool isUpdatingWeather;
@@ -541,6 +544,13 @@ class _StatusPanel extends StatelessWidget {
                     ),
                   ],
                 ),
+                if (connected && !hasArduinoData) ...[
+                  const SizedBox(height: 12),
+                  Text(
+                    'BLE-модуль найден, но Arduino пока не отвечает. Проверьте, что загружен свежий скетч и провода HM-10 TXD/RXD подключены к D11/D12 крест-накрест.',
+                    style: Theme.of(context).textTheme.bodyMedium,
+                  ),
+                ],
               ],
             ),
           ),
@@ -656,6 +666,11 @@ class _StatusPanel extends StatelessWidget {
                       onPressed: onSyncTime,
                       icon: const Icon(Icons.schedule),
                       label: const Text('Синхронизировать время'),
+                    ),
+                    OutlinedButton.icon(
+                      onPressed: onPing,
+                      icon: const Icon(Icons.network_ping),
+                      label: const Text('PING Arduino'),
                     ),
                   ],
                 ),
