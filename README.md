@@ -8,7 +8,7 @@ Assumptions used by the sketch:
 
 | Module | Arduino Nano pin |
 | --- | --- |
-| I2C OLED SSD1306, 128x64, address `0x3C` | `SDA -> A4`, `SCL -> A5`, `VCC`, `GND` |
+| LCD 1602 I2C, address `0x27` or `0x3F` | `SDA -> A4`, `SCL -> A5`, `VCC`, `GND` |
 | HW-507 / KY-015 / DHT11 | `S -> D3`, `+ -> 5V`, `- -> GND` |
 | HW-483 button | `S -> D2`, `+ -> 5V`, `- -> GND` |
 | HM-10 BLE module | `TXD -> D11`, `RXD -> D12`, `VCC`, `GND` |
@@ -26,10 +26,8 @@ arduino/tamagotchi_station/tamagotchi_station.ino
 Install these Arduino IDE libraries first:
 
 - `DHT sensor library`
-- `Adafruit SSD1306`
-- `Adafruit GFX Library`
 
-If the OLED address is `0x3D`, change `OLED_ADDRESS` in the sketch. If the button works inverted, change `BUTTON_ACTIVE_HIGH` to `false`.
+The LCD code is built into the sketch and uses only Arduino `Wire`, so no `LiquidCrystal_I2C`, `Adafruit SSD1306`, or `Adafruit GFX` library is needed. The sketch tries LCD I2C addresses `0x27` and `0x3F`. If the button works inverted, change `BUTTON_ACTIVE_HIGH` to `false`.
 
 Controls:
 

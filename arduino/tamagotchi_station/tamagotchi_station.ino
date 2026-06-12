@@ -1,11 +1,9 @@
-#include <Adafruit_GFX.h>
-#include <Adafruit_SSD1306.h>
 #include <DHT.h>
 #include <SoftwareSerial.h>
 #include <Wire.h>
 
 // Wiring:
-// OLED SSD1306 I2C: SDA -> A4, SCL -> A5, VCC -> 5V, GND -> GND
+// LCD 1602 I2C: SDA -> A4, SCL -> A5, VCC -> 5V, GND -> GND
 // HW-507/KY-015/DHT11: S -> D3, + -> 5V, - -> GND
 // HW-483 button: S -> D2, + -> 5V, - -> GND
 // HM-10 BLE: TXD -> D11, RXD -> D12 through a voltage divider, GND -> GND, VCC -> 5V/3.3V per module board
@@ -21,16 +19,92 @@ constexpr unsigned long LONG_PRESS_MS = 900;
 constexpr unsigned long DEBOUNCE_MS = 35;
 constexpr unsigned long SENSOR_INTERVAL_MS = 2200;
 constexpr unsigned long BLE_INTERVAL_MS = 1000;
+constexpr unsigned long DISPLAY_INTERVAL_MS = 500;
 constexpr unsigned long PET_DECAY_INTERVAL_MS = 30000;
 
-constexpr byte SCREEN_WIDTH = 128;
-constexpr byte SCREEN_HEIGHT = 64;
-constexpr int OLED_RESET = -1;
-constexpr byte OLED_ADDRESS = 0x3C;
+constexpr byte LCD_COLS = 16;
+constexpr byte LCD_ROWS = 2;
+constexpr byte LCD_ADDRESS_PRIMARY = 0x27;
+constexpr byte LCD_ADDRESS_FALLBACK = 0x3F;
+
+class I2cLcd : public Print {
+public:
+  explicit I2cLcd(byte address) : address_(address) {}
+
+  void setAddress(byte address) {
+    address_ = address;
+  }
+
+  void begin() {
+    delay(50);
+    write4Bits(0x30);
+    delayMicroseconds(4500);
+    write4Bits(0x30);
+    delayMicroseconds(4500);
+    write4Bits(0x30);
+    delayMicroseconds(150);
+    write4Bits(0x20);
+
+    command(0x28);  // 4-bit mode, 2 lines, 5x8 font.
+    command(0x0C);  // Display on, cursor off.
+    command(0x06);  // Increment cursor.
+    clear();
+  }
+
+  void clear() {
+    command(0x01);
+    delayMicroseconds(2000);
+  }
+
+  void setCursor(byte col, byte row) {
+    static const byte rowOffsets[] = {0x00, 0x40};
+    if (row >= LCD_ROWS) {
+      row = LCD_ROWS - 1;
+    }
+    command(0x80 | (col + rowOffsets[row]));
+  }
+
+  size_t write(uint8_t value) override {
+    send(value, true);
+    return 1;
+  }
+
+private:
+  byte address_;
+  byte backlight_ = 0x08;
+
+  void command(byte value) {
+    send(value, false);
+  }
+
+  void send(byte value, bool rs) {
+    const byte mode = rs ? 0x01 : 0x00;
+    write4Bits((value & 0xF0) | mode);
+    write4Bits(((value << 4) & 0xF0) | mode);
+  }
+
+  void write4Bits(byte value) {
+    expanderWrite(value);
+    pulseEnable(value);
+  }
+
+  void expanderWrite(byte value) {
+    Wire.beginTransmission(address_);
+    Wire.write(value | backlight_);
+    Wire.endTransmission();
+  }
+
+  void pulseEnable(byte value) {
+    expanderWrite(value | 0x04);
+    delayMicroseconds(1);
+    expanderWrite(value & ~0x04);
+    delayMicroseconds(50);
+  }
+};
 
 DHT dht(DHT_PIN, DHT_TYPE);
 SoftwareSerial ble(BLE_RX_PIN, BLE_TX_PIN);
-Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
+I2cLcd lcd(LCD_ADDRESS_PRIMARY);
 
 enum ScreenMode : byte {
   SCREEN_CLIMATE,
@@ -52,6 +126,7 @@ unsigned long lastButtonChangeMs = 0;
 unsigned long pressStartedMs = 0;
 unsigned long lastSensorMs = 0;
 unsigned long lastBleMs = 0;
+unsigned long lastDisplayMs = 0;
 unsigned long lastPetDecayMs = 0;
 
 bool clockSynced = false;
@@ -70,19 +145,15 @@ void setup() {
   pinMode(BUTTON_PIN, INPUT);
   Serial.begin(9600);
   ble.begin(9600);
+  Wire.begin();
   dht.begin();
 
-  if (!display.begin(SSD1306_SWITCHCAPVCC, OLED_ADDRESS)) {
-    Serial.println(F("SSD1306 init failed"));
-  } else {
-    display.clearDisplay();
-    display.setTextColor(SSD1306_WHITE);
-    display.setTextSize(1);
-    display.setCursor(0, 0);
-    display.println(F("Arduino Pet Link"));
-    display.println(F("Waiting for data..."));
-    display.display();
-  }
+  lcd.setAddress(detectLcdAddress());
+  lcd.begin();
+  lcd.setCursor(0, 0);
+  lcd.print(F("Arduino PetLink"));
+  lcd.setCursor(0, 1);
+  lcd.print(F("Starting..."));
 
   sendSnapshot();
 }
@@ -96,12 +167,15 @@ void loop() {
   if (now - lastSensorMs >= SENSOR_INTERVAL_MS) {
     lastSensorMs = now;
     readSensor();
-    drawCurrentScreen();
   }
 
   if (now - lastPetDecayMs >= PET_DECAY_INTERVAL_MS) {
     lastPetDecayMs = now;
     decayPet();
+  }
+
+  if (now - lastDisplayMs >= DISPLAY_INTERVAL_MS) {
+    lastDisplayMs = now;
     drawCurrentScreen();
   }
 
@@ -109,6 +183,21 @@ void loop() {
     lastBleMs = now;
     sendSnapshot();
   }
+}
+
+byte detectLcdAddress() {
+  if (i2cAddressResponds(LCD_ADDRESS_PRIMARY)) {
+    return LCD_ADDRESS_PRIMARY;
+  }
+  if (i2cAddressResponds(LCD_ADDRESS_FALLBACK)) {
+    return LCD_ADDRESS_FALLBACK;
+  }
+  return LCD_ADDRESS_PRIMARY;
+}
+
+bool i2cAddressResponds(byte address) {
+  Wire.beginTransmission(address);
+  return Wire.endTransmission() == 0;
 }
 
 void handleButton(unsigned long now) {
@@ -217,10 +306,7 @@ void nextScreen() {
 }
 
 void drawCurrentScreen() {
-  display.clearDisplay();
-  display.setTextColor(SSD1306_WHITE);
-  display.setTextSize(1);
-  display.setCursor(0, 0);
+  lcd.clear();
 
   switch (screenMode) {
     case SCREEN_CLIMATE:
@@ -233,57 +319,42 @@ void drawCurrentScreen() {
       drawClockScreen();
       break;
   }
-
-  display.display();
 }
 
 void drawClimateScreen() {
-  display.println(F("Climate"));
-  display.drawLine(0, 10, 127, 10, SSD1306_WHITE);
-  display.setTextSize(2);
-  display.setCursor(0, 18);
+  lcd.setCursor(0, 0);
+  lcd.print(F("Temp: "));
   if (isnan(temperatureC)) {
-    display.print(F("--.-"));
+    lcd.print(F("--.-"));
   } else {
-    display.print(temperatureC, 1);
+    lcd.print(temperatureC, 1);
   }
-  display.println(F(" C"));
+  lcd.print(F(" C"));
 
-  display.setCursor(0, 43);
+  lcd.setCursor(0, 1);
+  lcd.print(F("Hum:  "));
   if (isnan(humidityPercent)) {
-    display.print(F("--"));
+    lcd.print(F("--"));
   } else {
-    display.print(humidityPercent, 0);
+    lcd.print(humidityPercent, 0);
   }
-  display.println(F(" %"));
+  lcd.print(F(" %"));
 }
 
 void drawPetScreen() {
-  display.println(F("Tamagotchi"));
-  display.drawCircle(64, 32, 18, SSD1306_WHITE);
-  display.fillCircle(58, 27, 2, SSD1306_WHITE);
-  display.fillCircle(70, 27, 2, SSD1306_WHITE);
+  lcd.setCursor(0, 0);
+  lcd.print(F("Pet "));
+  lcd.print((hunger < 30 || happiness < 30) ? F(":(") : F(":)"));
+  lcd.print(F(" Food "));
+  print3Digits(lcd, hunger);
 
-  if (hunger < 30 || happiness < 30) {
-    display.drawLine(56, 40, 72, 36, SSD1306_WHITE);
-  } else {
-    display.drawLine(56, 37, 60, 41, SSD1306_WHITE);
-    display.drawLine(60, 41, 68, 41, SSD1306_WHITE);
-    display.drawLine(68, 41, 72, 37, SSD1306_WHITE);
-  }
-
-  display.setCursor(0, 52);
-  display.print(F("Food "));
-  display.print(hunger);
-  display.print(F("%  Mood "));
-  display.print(happiness);
-  display.print(F("%"));
+  lcd.setCursor(0, 1);
+  lcd.print(F("Mood "));
+  print3Digits(lcd, happiness);
+  lcd.print(F("% Press"));
 }
 
 void drawClockScreen() {
-  display.println(F("Clock"));
-  display.drawLine(0, 10, 127, 10, SSD1306_WHITE);
-
   int year;
   byte month;
   byte day;
@@ -292,24 +363,24 @@ void drawClockScreen() {
   byte second;
   getClock(year, month, day, hour, minute, second);
 
-  display.setTextSize(2);
-  display.setCursor(0, 19);
-  printTwoDigits(display, hour);
-  display.print(F(":"));
-  printTwoDigits(display, minute);
-  display.print(F(":"));
-  printTwoDigits(display, second);
+  lcd.setCursor(0, 0);
+  lcd.print(F("Time "));
+  printTwoDigits(lcd, hour);
+  lcd.print(F(":"));
+  printTwoDigits(lcd, minute);
+  lcd.print(F(":"));
+  printTwoDigits(lcd, second);
 
-  display.setTextSize(1);
-  display.setCursor(0, 47);
+  lcd.setCursor(0, 1);
   if (!clockSynced) {
-    display.print(F("Sync from app"));
+    lcd.print(F("Sync from app"));
   } else {
-    printTwoDigits(display, day);
-    display.print(F("."));
-    printTwoDigits(display, month);
-    display.print(F("."));
-    display.print(year);
+    lcd.print(F("Date "));
+    printTwoDigits(lcd, day);
+    lcd.print(F("."));
+    printTwoDigits(lcd, month);
+    lcd.print(F("."));
+    lcd.print(year);
   }
 }
 
@@ -415,7 +486,7 @@ void getClock(int& year, byte& month, byte& day, byte& hour, byte& minute, byte&
 }
 
 byte daysInMonth(int year, byte month) {
-  static const byte days[] = { 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31 };
+  static const byte days[] = {31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
   if (month == 2 && isLeapYear(year)) {
     return 29;
   }
@@ -427,6 +498,16 @@ bool isLeapYear(int year) {
 }
 
 void printTwoDigits(Print& printer, int value) {
+  if (value < 10) {
+    printer.print(F("0"));
+  }
+  printer.print(value);
+}
+
+void print3Digits(Print& printer, byte value) {
+  if (value < 100) {
+    printer.print(F("0"));
+  }
   if (value < 10) {
     printer.print(F("0"));
   }
