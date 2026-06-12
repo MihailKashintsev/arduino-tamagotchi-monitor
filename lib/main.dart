@@ -54,6 +54,7 @@ class _MonitorPageState extends State<MonitorPage> {
   static final Guid _hm10Characteristic = Guid(
     '0000ffe1-0000-1000-8000-00805f9b34fb',
   );
+  static const int _hm10WriteChunkSize = 20;
 
   final List<ScanResult> _scanResults = [];
   final StringBuffer _rxBuffer = StringBuffer();
@@ -200,7 +201,11 @@ class _MonitorPageState extends State<MonitorPage> {
         _status = 'Подключено к ${_deviceName(device)}';
       });
 
-      await _sendCommand('TIME:${DateTime.now().toIso8601String()}');
+      try {
+        await _sendCommand('TIME:${DateTime.now().toIso8601String()}');
+      } catch (error) {
+        setState(() => _status = 'Подключено, но время не отправлено: $error');
+      }
     } catch (error) {
       setState(() => _status = 'Ошибка подключения: $error');
     } finally {
@@ -250,10 +255,18 @@ class _MonitorPageState extends State<MonitorPage> {
       return;
     }
 
-    await characteristic.write(
-      utf8.encode('$command\n'),
-      withoutResponse: characteristic.properties.writeWithoutResponse,
-    );
+    final bytes = utf8.encode('$command\n');
+    final withoutResponse = characteristic.properties.writeWithoutResponse;
+
+    for (var offset = 0; offset < bytes.length; offset += _hm10WriteChunkSize) {
+      final nextOffset = offset + _hm10WriteChunkSize;
+      final end = nextOffset > bytes.length ? bytes.length : nextOffset;
+      await characteristic.write(
+        bytes.sublist(offset, end),
+        withoutResponse: withoutResponse,
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 35));
+    }
   }
 
   Future<void> _sendWeatherFromPhone() async {
