@@ -1,5 +1,5 @@
 name: arduino_tamagotchi_monitor
-description: BLE monitor and Tamagotchi controller for Arduino Nano, HM-10, DHT11, and SSD1306.
+description: BLE monitor and Tamagotchi controller for Arduino Nano, HM-10, DHT11, and LCD 1602.
 # The following line prevents the package from being accidentally published to
 # pub.dev using `flutter pub publish`. This is preferred for private packages.
 publish_to: 'none' # Remove this line if you wish to publish to pub.dev
@@ -33,6 +33,7 @@ dependencies:
 
   cupertino_icons: ^1.0.8
   flutter_blue_plus: ^1.36.8
+  http: ^1.2.2
   intl: ^0.20.2
   permission_handler: ^11.4.0
 

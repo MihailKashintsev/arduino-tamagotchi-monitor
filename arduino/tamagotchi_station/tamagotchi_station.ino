@@ -110,6 +110,7 @@ enum ScreenMode : byte {
   SCREEN_CLIMATE,
   SCREEN_PET,
   SCREEN_CLOCK,
+  SCREEN_WEATHER,
 };
 
 ScreenMode screenMode = SCREEN_CLIMATE;
@@ -118,6 +119,9 @@ float temperatureC = NAN;
 float humidityPercent = NAN;
 byte hunger = 76;
 byte happiness = 82;
+bool weatherSynced = false;
+char weatherCity[17] = "No city";
+float weatherTempC = NAN;
 
 bool lastRawPressed = false;
 bool debouncedPressed = false;
@@ -268,6 +272,12 @@ void handleCommand(const char* command) {
   if (strncmp(command, "TIME:", 5) == 0) {
     syncClock(command + 5);
     drawCurrentScreen();
+    return;
+  }
+
+  if (strncmp(command, "WEATHER:", 8) == 0) {
+    syncWeather(command + 8);
+    drawCurrentScreen();
   }
 }
 
@@ -300,7 +310,7 @@ void decayPet() {
 }
 
 void nextScreen() {
-  screenMode = static_cast<ScreenMode>((screenMode + 1) % 3);
+  screenMode = static_cast<ScreenMode>((screenMode + 1) % 4);
   drawCurrentScreen();
   sendSnapshot();
 }
@@ -317,6 +327,9 @@ void drawCurrentScreen() {
       break;
     case SCREEN_CLOCK:
       drawClockScreen();
+      break;
+    case SCREEN_WEATHER:
+      drawWeatherScreen();
       break;
   }
 }
@@ -384,6 +397,28 @@ void drawClockScreen() {
   }
 }
 
+void drawWeatherScreen() {
+  lcd.setCursor(0, 0);
+  if (weatherSynced) {
+    lcd.print(weatherCity);
+  } else {
+    lcd.print(F("Weather"));
+  }
+
+  lcd.setCursor(0, 1);
+  if (!weatherSynced || isnan(weatherTempC)) {
+    lcd.print(F("From phone app"));
+  } else {
+    lcd.print(F("Outside "));
+    if (weatherTempC > -10 && weatherTempC < 100) {
+      lcd.print(weatherTempC, 1);
+    } else {
+      lcd.print(weatherTempC, 0);
+    }
+    lcd.print(F(" C"));
+  }
+}
+
 void sendSnapshot() {
   ble.print(F("{\"temp\":"));
   printFloatOrNull(ble, temperatureC, 1);
@@ -406,6 +441,8 @@ const char* screenName() {
       return "pet";
     case SCREEN_CLOCK:
       return "clock";
+    case SCREEN_WEATHER:
+      return "weather";
   }
   return "unknown";
 }
@@ -435,6 +472,40 @@ void syncClock(const char* iso) {
     clockSecond = constrain(second, 0, 59);
     clockSyncMs = millis();
     clockSynced = true;
+  }
+}
+
+void syncWeather(const char* payload) {
+  const char* comma = strchr(payload, ',');
+  if (comma == nullptr) {
+    return;
+  }
+
+  const byte cityLength = min(static_cast<int>(comma - payload), 16);
+  for (byte i = 0; i < cityLength; i++) {
+    const char c = payload[i];
+    weatherCity[i] = isPrintableAscii(c) && c != ',' ? c : ' ';
+  }
+  weatherCity[cityLength] = '\0';
+  trimRight(weatherCity);
+
+  if (weatherCity[0] == '\0') {
+    strcpy(weatherCity, "City");
+  }
+
+  weatherTempC = atof(comma + 1);
+  weatherSynced = true;
+}
+
+bool isPrintableAscii(char c) {
+  return c >= 32 && c <= 126;
+}
+
+void trimRight(char* value) {
+  int length = strlen(value);
+  while (length > 0 && value[length - 1] == ' ') {
+    value[length - 1] = '\0';
+    length--;
   }
 }
 

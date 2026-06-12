@@ -32,9 +32,10 @@ The LCD code is built into the sketch and uses only Arduino `Wire`, so no `Liqui
 Controls:
 
 - Short button press: feed the Tamagotchi.
-- Hold button for about 900 ms: switch screen.
+- Hold button for about 900 ms: switch screen between climate, pet, clock, and phone weather.
 - App command `FEED`: feed remotely.
 - App command `TIME:<iso datetime>`: sync clock from phone/Mac.
+- App command `WEATHER:<city>,<temperature>`: show phone-provided weather on the LCD.
 
 BLE payload sent every second:
 
@@ -68,6 +69,8 @@ flutter run -d android
 ```
 
 The Android build includes Bluetooth LE permissions. The macOS build includes the Bluetooth entitlement and usage text.
+
+The weather panel in the app uses Open-Meteo over the phone/Mac internet connection. Arduino does not connect to the internet; it only receives the city and temperature through HM-10 BLE.
 
 ## Notes
 

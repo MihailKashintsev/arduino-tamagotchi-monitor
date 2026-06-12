@@ -4,6 +4,7 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
+import 'package:http/http.dart' as http;
 import 'package:intl/intl.dart';
 import 'package:permission_handler/permission_handler.dart';
 
@@ -56,6 +57,9 @@ class _MonitorPageState extends State<MonitorPage> {
 
   final List<ScanResult> _scanResults = [];
   final StringBuffer _rxBuffer = StringBuffer();
+  final TextEditingController _weatherCityController = TextEditingController(
+    text: 'Moscow',
+  );
 
   BluetoothDevice? _device;
   BluetoothCharacteristic? _uart;
@@ -65,7 +69,9 @@ class _MonitorPageState extends State<MonitorPage> {
 
   bool _isScanning = false;
   bool _isConnecting = false;
+  bool _isUpdatingWeather = false;
   String _status = 'Не подключено';
+  String _weatherStatus = 'Город можно изменить перед отправкой.';
   String _lastLine = '';
   DeviceSnapshot _snapshot = DeviceSnapshot.empty();
 
@@ -90,6 +96,7 @@ class _MonitorPageState extends State<MonitorPage> {
     _scanSubscription?.cancel();
     _uartSubscription?.cancel();
     _connectionSubscription?.cancel();
+    _weatherCityController.dispose();
     _device?.disconnect();
     super.dispose();
   }
@@ -249,6 +256,117 @@ class _MonitorPageState extends State<MonitorPage> {
     );
   }
 
+  Future<void> _sendWeatherFromPhone() async {
+    if (_isUpdatingWeather) {
+      return;
+    }
+
+    final cityQuery = _weatherCityController.text.trim();
+    if (cityQuery.isEmpty) {
+      setState(() => _weatherStatus = 'Введите город.');
+      return;
+    }
+
+    setState(() {
+      _isUpdatingWeather = true;
+      _weatherStatus = 'Получаю погоду для $cityQuery...';
+    });
+
+    try {
+      final weather = await _fetchCurrentWeather(cityQuery);
+      final displayCity = _asciiForLcd(weather.city);
+      await _sendCommand(
+        'WEATHER:$displayCity,${weather.temperatureC.toStringAsFixed(1)}',
+      );
+
+      if (mounted) {
+        setState(() {
+          _weatherStatus =
+              'Отправлено: $displayCity ${weather.temperatureC.toStringAsFixed(1)} °C';
+        });
+      }
+    } catch (error) {
+      if (mounted) {
+        setState(() => _weatherStatus = 'Не удалось получить погоду: $error');
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isUpdatingWeather = false);
+      }
+    }
+  }
+
+  Future<PhoneWeather> _fetchCurrentWeather(String cityQuery) async {
+    final geocodingUri = Uri.https(
+      'geocoding-api.open-meteo.com',
+      '/v1/search',
+      {'name': cityQuery, 'count': '1', 'language': 'en', 'format': 'json'},
+    );
+    final geocodingResponse = await http
+        .get(geocodingUri)
+        .timeout(const Duration(seconds: 12));
+
+    if (geocodingResponse.statusCode != 200) {
+      throw Exception('geocoding HTTP ${geocodingResponse.statusCode}');
+    }
+
+    final geocodingJson =
+        jsonDecode(geocodingResponse.body) as Map<String, dynamic>;
+    final results = geocodingJson['results'];
+    if (results is! List ||
+        results.isEmpty ||
+        results.first is! Map<String, dynamic>) {
+      throw Exception('город не найден');
+    }
+
+    final place = results.first as Map<String, dynamic>;
+    final latitude = place['latitude'];
+    final longitude = place['longitude'];
+    if (latitude is! num || longitude is! num) {
+      throw Exception('нет координат города');
+    }
+
+    final forecastUri = Uri.https('api.open-meteo.com', '/v1/forecast', {
+      'latitude': latitude.toString(),
+      'longitude': longitude.toString(),
+      'current': 'temperature_2m',
+    });
+    final forecastResponse = await http
+        .get(forecastUri)
+        .timeout(const Duration(seconds: 12));
+
+    if (forecastResponse.statusCode != 200) {
+      throw Exception('weather HTTP ${forecastResponse.statusCode}');
+    }
+
+    final forecastJson =
+        jsonDecode(forecastResponse.body) as Map<String, dynamic>;
+    final current = forecastJson['current'];
+    if (current is! Map<String, dynamic> || current['temperature_2m'] is! num) {
+      throw Exception('нет текущей температуры');
+    }
+
+    return PhoneWeather(
+      city: (place['name'] ?? cityQuery).toString(),
+      temperatureC: (current['temperature_2m'] as num).toDouble(),
+    );
+  }
+
+  String _asciiForLcd(String value) {
+    final ascii = value
+        .replaceAll(',', ' ')
+        .runes
+        .where((rune) => rune >= 32 && rune <= 126)
+        .map(String.fromCharCode)
+        .join()
+        .trim();
+
+    if (ascii.isEmpty) {
+      return 'City';
+    }
+    return ascii.length <= 16 ? ascii : ascii.substring(0, 16).trim();
+  }
+
   String _deviceName(BluetoothDevice device) {
     final name = device.platformName.trim();
     return name.isEmpty ? device.remoteId.str : name;
@@ -292,6 +410,10 @@ class _MonitorPageState extends State<MonitorPage> {
                               'TIME:${DateTime.now().toIso8601String()}',
                             )
                           : null,
+                      weatherCityController: _weatherCityController,
+                      weatherStatus: _weatherStatus,
+                      isUpdatingWeather: _isUpdatingWeather,
+                      onSendWeather: connected ? _sendWeatherFromPhone : null,
                     ),
                   ),
                   SizedBox(width: wide ? 16 : 0, height: wide ? 0 : 16),
@@ -324,6 +446,10 @@ class _StatusPanel extends StatelessWidget {
     required this.lastLine,
     required this.onFeed,
     required this.onSyncTime,
+    required this.weatherCityController,
+    required this.weatherStatus,
+    required this.isUpdatingWeather,
+    required this.onSendWeather,
   });
 
   final String status;
@@ -332,6 +458,10 @@ class _StatusPanel extends StatelessWidget {
   final String lastLine;
   final VoidCallback? onFeed;
   final VoidCallback? onSyncTime;
+  final TextEditingController weatherCityController;
+  final String weatherStatus;
+  final bool isUpdatingWeather;
+  final VoidCallback? onSendWeather;
 
   @override
   Widget build(BuildContext context) {
@@ -389,6 +519,55 @@ class _StatusPanel extends StatelessWidget {
               ),
             ),
           ],
+        ),
+        const SizedBox(height: 12),
+        Card(
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    const Icon(Icons.cloud),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'Погода для экрана',
+                        style: Theme.of(context).textTheme.titleLarge,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: weatherCityController,
+                  decoration: const InputDecoration(
+                    border: OutlineInputBorder(),
+                    labelText: 'Город',
+                  ),
+                  textInputAction: TextInputAction.done,
+                  onSubmitted: (_) => onSendWeather?.call(),
+                ),
+                const SizedBox(height: 12),
+                Wrap(
+                  spacing: 12,
+                  runSpacing: 12,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  children: [
+                    FilledButton.icon(
+                      onPressed: isUpdatingWeather ? null : onSendWeather,
+                      icon: Icon(
+                        isUpdatingWeather ? Icons.hourglass_top : Icons.send,
+                      ),
+                      label: const Text('Отправить погоду'),
+                    ),
+                    Text(weatherStatus),
+                  ],
+                ),
+              ],
+            ),
+          ),
         ),
         const SizedBox(height: 12),
         Card(
@@ -646,4 +825,11 @@ class DeviceSnapshot {
   final int? happinessPercent;
   final String? screen;
   final DateTime? updatedAt;
+}
+
+class PhoneWeather {
+  const PhoneWeather({required this.city, required this.temperatureC});
+
+  final String city;
+  final double temperatureC;
 }
