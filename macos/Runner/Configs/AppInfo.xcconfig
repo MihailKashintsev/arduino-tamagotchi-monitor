@@ -5,7 +5,7 @@
 // 'flutter create' template.
 
 // The application's name. By default this is also the title of the Flutter window.
-PRODUCT_NAME = arduino_tamagotchi_monitor
+PRODUCT_NAME = RenPet
 
 // The application's bundle identifier
 PRODUCT_BUNDLE_IDENTIFIER = dev.mihail.arduinoTamagotchiMonitor

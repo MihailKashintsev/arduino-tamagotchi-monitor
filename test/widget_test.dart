@@ -5,7 +5,7 @@ void main() {
   testWidgets('shows monitor shell', (tester) async {
     await tester.pumpWidget(const TamagotchiMonitorApp());
 
-    expect(find.text('Arduino Pet Link'), findsWidgets);
+    expect(find.text('RenPet'), findsWidgets);
     expect(find.text('Тамагочи'), findsOneWidget);
     expect(find.text('Обзор'), findsOneWidget);
     expect(find.text('Настройки'), findsOneWidget);

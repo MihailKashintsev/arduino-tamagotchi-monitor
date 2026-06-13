@@ -1,4 +1,4 @@
-# Arduino Pet Link
+# RenPet
 
 Flutter app for Android and macOS plus an Arduino Nano sketch for a small Bluetooth Tamagotchi/weather station.
 
@@ -42,7 +42,7 @@ Controls:
 BLE payload sent every second:
 
 ```json
-{"temp":23.0,"hum":45,"hunger":90,"happy":88,"screen":"pet"}
+{"temp":23.0,"hum":45,"hunger":90,"happy":88,"screen":"pet","fw":"1.2.0"}
 ```
 
 The app expects the common HM-10 UART service/characteristic:
@@ -73,6 +73,21 @@ flutter run -d android
 The Android build includes Bluetooth LE permissions. The macOS build includes the Bluetooth entitlement and usage text.
 
 The weather panel in the app uses Open-Meteo over the phone/Mac internet connection. Arduino does not connect to the internet; it only receives the city and temperature through HM-10 BLE.
+
+## Releases and updates
+
+GitHub Actions builds releases from tags named `v*`.
+
+Each release contains:
+
+- `RenPet-Android.apk`
+- `RenPet-macOS.zip`
+- `RenPet-firmware.ino`
+- `RenPet-Nano-old-bootloader.hex`
+
+The app can check the latest GitHub Release from the Settings screen and open the release page for downloading app and firmware assets.
+
+Firmware note: Arduino Nano cannot be safely flashed through HM-10 with this wiring alone. Updating firmware from the app would require a custom OTA bootloader or extra reset/programming hardware. Use USB + Arduino IDE/CLI for the included `.ino` or `.hex` firmware asset.
 
 ## Notes
 

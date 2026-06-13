@@ -10,6 +10,9 @@ import 'package:intl/intl.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+const String appVersion = '1.2.0';
+const String githubRepo = 'MihailKashintsev/arduino-tamagotchi-monitor';
+
 void main() {
   runApp(const TamagotchiMonitorApp());
 }
@@ -60,7 +63,7 @@ class AppStrings {
   final AppLanguage language;
 
   bool get isRu => language == AppLanguage.ru;
-  String get appName => 'Arduino Pet Link';
+  String get appName => 'RenPet';
   String get eyebrow => isRu ? 'домашняя станция' : 'home station';
   String get overview => isRu ? 'Обзор' : 'Overview';
   String get pet => isRu ? 'Тамагочи' : 'Tamagotchi';
@@ -97,7 +100,7 @@ class AppStrings {
   String get mood => isRu ? 'Настроение' : 'Mood';
   String get feed => isRu ? 'Покормить' : 'Feed';
   String get syncTime => isRu ? 'Синхронизировать время' : 'Sync time';
-  String get ping => 'PING Arduino';
+  String get ping => isRu ? 'Пинг Arduino' : 'PING Arduino';
   String get city => isRu ? 'Город' : 'City';
   String get weatherHint => isRu
       ? 'Город можно изменить перед отправкой.'
@@ -148,6 +151,26 @@ class AppStrings {
   String get light => isRu ? 'Светлая' : 'Light';
   String get dark => isRu ? 'Тёмная' : 'Dark';
   String get github => isRu ? 'Открыть GitHub' : 'Open GitHub';
+  String get updates => isRu ? 'Обновления' : 'Updates';
+  String get appVersionLabel => isRu ? 'Версия приложения' : 'App version';
+  String get firmwareVersionLabel =>
+      isRu ? 'Версия прошивки' : 'Firmware version';
+  String get checkUpdates => isRu ? 'Проверить обновления' : 'Check updates';
+  String get openRelease => isRu ? 'Открыть релиз' : 'Open release';
+  String get noReleaseYet =>
+      isRu ? 'Релиз ещё не проверялся.' : 'Release has not been checked yet.';
+  String get checkingRelease =>
+      isRu ? 'Проверяю GitHub Release...' : 'Checking GitHub Release...';
+  String get noUpdates =>
+      isRu ? 'Установлена актуальная версия.' : 'You are up to date.';
+  String updateAvailable(String version) =>
+      isRu ? 'Доступна версия $version.' : 'Version $version is available.';
+  String updateCheckFailed(Object error) => isRu
+      ? 'Не удалось проверить обновления: $error'
+      : 'Could not check updates: $error';
+  String get firmwareInstallNote => isRu
+      ? 'Nano нельзя безопасно прошить по HM-10 без отдельного загрузчика/схемы reset. Приложение открывает релиз с .ino/.hex; заливка прошивки сейчас через USB и Arduino IDE.'
+      : 'Nano cannot be safely flashed over HM-10 without a custom bootloader/reset circuit. The app opens the release with .ino/.hex; firmware upload is currently via USB and Arduino IDE.';
   String get diagnostics => isRu ? 'Диагностика' : 'Diagnostics';
   String get stationPulse => isRu ? 'пульс станции' : 'station pulse';
   String get liveData => isRu ? 'живые данные' : 'live data';
@@ -305,8 +328,11 @@ class _MonitorPageState extends State<MonitorPage> {
   bool _isScanning = false;
   bool _isConnecting = false;
   bool _isUpdatingWeather = false;
+  bool _isCheckingUpdate = false;
   late String _status;
   late String _weatherStatus;
+  late String _updateStatus;
+  Uri? _latestReleaseUri;
   String _lastLine = '';
   DeviceSnapshot _snapshot = DeviceSnapshot.empty();
 
@@ -315,6 +341,7 @@ class _MonitorPageState extends State<MonitorPage> {
     super.initState();
     _status = widget.strings.disconnected;
     _weatherStatus = widget.strings.weatherHint;
+    _updateStatus = widget.strings.noReleaseYet;
     _scanSubscription = FlutterBluePlus.scanResults.listen((results) {
       final filtered = results.where(_isLikelyHm10).toList()
         ..sort((a, b) => b.rssi.compareTo(a.rssi));
@@ -618,10 +645,72 @@ class _MonitorPageState extends State<MonitorPage> {
   }
 
   Future<void> _openGithub() async {
-    final uri = Uri.parse(
-      'https://github.com/MihailKashintsev/arduino-tamagotchi-monitor',
-    );
+    final uri = Uri.parse('https://github.com/$githubRepo');
     await launchUrl(uri, mode: LaunchMode.externalApplication);
+  }
+
+  Future<void> _checkForUpdates() async {
+    setState(() {
+      _isCheckingUpdate = true;
+      _updateStatus = widget.strings.checkingRelease;
+    });
+
+    try {
+      final uri = Uri.https(
+        'api.github.com',
+        '/repos/$githubRepo/releases/latest',
+      );
+      final response = await http
+          .get(uri, headers: {'Accept': 'application/vnd.github+json'})
+          .timeout(const Duration(seconds: 12));
+      if (response.statusCode != 200) {
+        throw Exception('GitHub HTTP ${response.statusCode}');
+      }
+
+      final json = jsonDecode(response.body) as Map<String, dynamic>;
+      final tag = (json['tag_name'] ?? '').toString();
+      final version = tag.startsWith('v') ? tag.substring(1) : tag;
+      final htmlUrl = (json['html_url'] ?? '').toString();
+
+      setState(() {
+        _latestReleaseUri = Uri.tryParse(htmlUrl);
+        _updateStatus = _isVersionNewer(version, appVersion)
+            ? widget.strings.updateAvailable(version)
+            : widget.strings.noUpdates;
+      });
+    } catch (error) {
+      setState(() => _updateStatus = widget.strings.updateCheckFailed(error));
+    } finally {
+      if (mounted) {
+        setState(() => _isCheckingUpdate = false);
+      }
+    }
+  }
+
+  Future<void> _openLatestRelease() async {
+    final uri =
+        _latestReleaseUri ??
+        Uri.parse('https://github.com/$githubRepo/releases/latest');
+    await launchUrl(uri, mode: LaunchMode.externalApplication);
+  }
+
+  bool _isVersionNewer(String remote, String local) {
+    List<int> parse(String value) => value
+        .split(RegExp(r'[^0-9]+'))
+        .where((part) => part.isNotEmpty)
+        .map(int.parse)
+        .toList();
+
+    final remoteParts = parse(remote);
+    final localParts = parse(local);
+    for (var i = 0; i < 3; i++) {
+      final remotePart = i < remoteParts.length ? remoteParts[i] : 0;
+      final localPart = i < localParts.length ? localParts[i] : 0;
+      if (remotePart != localPart) {
+        return remotePart > localPart;
+      }
+    }
+    return false;
   }
 
   @override
@@ -643,7 +732,9 @@ class _MonitorPageState extends State<MonitorPage> {
       isScanning: _isScanning,
       isConnecting: _isConnecting,
       isUpdatingWeather: _isUpdatingWeather,
+      isCheckingUpdate: _isCheckingUpdate,
       weatherCityController: _weatherCityController,
+      updateStatus: _updateStatus,
       onSectionChanged: (section) => setState(() => _section = section),
       onScan: _startScan,
       onConnect: _connect,
@@ -654,6 +745,8 @@ class _MonitorPageState extends State<MonitorPage> {
       onPing: _connected ? () => _sendCommand('PING') : null,
       onSendWeather: _connected ? _sendWeatherFromPhone : null,
       onOpenGithub: _openGithub,
+      onCheckUpdates: _checkForUpdates,
+      onOpenLatestRelease: _openLatestRelease,
       onLanguageChanged: widget.onLanguageChanged,
       onLcdLanguageChanged: widget.onLcdLanguageChanged,
       onThemeChanged: widget.onThemeChanged,
@@ -689,7 +782,9 @@ class _ShellState {
     required this.isScanning,
     required this.isConnecting,
     required this.isUpdatingWeather,
+    required this.isCheckingUpdate,
     required this.weatherCityController,
+    required this.updateStatus,
     required this.onSectionChanged,
     required this.onScan,
     required this.onConnect,
@@ -698,6 +793,8 @@ class _ShellState {
     required this.onPing,
     required this.onSendWeather,
     required this.onOpenGithub,
+    required this.onCheckUpdates,
+    required this.onOpenLatestRelease,
     required this.onLanguageChanged,
     required this.onLcdLanguageChanged,
     required this.onThemeChanged,
@@ -720,7 +817,9 @@ class _ShellState {
   final bool isScanning;
   final bool isConnecting;
   final bool isUpdatingWeather;
+  final bool isCheckingUpdate;
   final TextEditingController weatherCityController;
+  final String updateStatus;
   final ValueChanged<AppSection> onSectionChanged;
   final VoidCallback onScan;
   final ValueChanged<ScanResult> onConnect;
@@ -729,6 +828,8 @@ class _ShellState {
   final VoidCallback? onPing;
   final VoidCallback? onSendWeather;
   final VoidCallback onOpenGithub;
+  final VoidCallback onCheckUpdates;
+  final VoidCallback onOpenLatestRelease;
   final ValueChanged<AppLanguage> onLanguageChanged;
   final ValueChanged<LcdLanguage> onLcdLanguageChanged;
   final ValueChanged<AppThemeChoice> onThemeChanged;
@@ -1586,9 +1687,76 @@ class _SettingsScreen extends StatelessWidget {
                 icon: const Icon(Icons.open_in_new),
                 label: Text(state.strings.github),
               ),
+              const SizedBox(height: 28),
+              _SettingLabel(state.strings.updates),
+              const SizedBox(height: 10),
+              _UpdatePanel(state: state),
             ],
           ),
         ),
+      ),
+    );
+  }
+}
+
+class _UpdatePanel extends StatelessWidget {
+  const _UpdatePanel({required this.state});
+
+  final _ShellState state;
+
+  @override
+  Widget build(BuildContext context) {
+    final firmware = state.snapshot.firmwareVersion ?? '--';
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Theme.of(
+          context,
+        ).colorScheme.surfaceContainerHighest.withValues(alpha: 0.45),
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text('${state.strings.appVersionLabel}: $appVersion'),
+              ),
+              Expanded(
+                child: Text('${state.strings.firmwareVersionLabel}: $firmware'),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          Text(state.updateStatus),
+          const SizedBox(height: 14),
+          Wrap(
+            spacing: 10,
+            runSpacing: 10,
+            children: [
+              FilledButton.icon(
+                onPressed: state.isCheckingUpdate ? null : state.onCheckUpdates,
+                icon: Icon(
+                  state.isCheckingUpdate
+                      ? Icons.hourglass_top
+                      : Icons.system_update,
+                ),
+                label: Text(state.strings.checkUpdates),
+              ),
+              OutlinedButton.icon(
+                onPressed: state.onOpenLatestRelease,
+                icon: const Icon(Icons.download),
+                label: Text(state.strings.openRelease),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          Text(
+            state.strings.firmwareInstallNote,
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
+        ],
       ),
     );
   }
@@ -2052,6 +2220,7 @@ class DeviceSnapshot {
     required this.hungerPercent,
     required this.happinessPercent,
     required this.screen,
+    required this.firmwareVersion,
     required this.updatedAt,
   });
 
@@ -2062,6 +2231,7 @@ class DeviceSnapshot {
       hungerPercent: null,
       happinessPercent: null,
       screen: null,
+      firmwareVersion: null,
       updatedAt: null,
     );
   }
@@ -2074,6 +2244,7 @@ class DeviceSnapshot {
       hungerPercent: readNum('hunger')?.round().clamp(0, 100),
       happinessPercent: readNum('happy')?.round().clamp(0, 100),
       screen: json['screen']?.toString(),
+      firmwareVersion: json['fw']?.toString(),
       updatedAt: DateTime.now(),
     );
   }
@@ -2083,6 +2254,7 @@ class DeviceSnapshot {
   final int? hungerPercent;
   final int? happinessPercent;
   final String? screen;
+  final String? firmwareVersion;
   final DateTime? updatedAt;
 }
 

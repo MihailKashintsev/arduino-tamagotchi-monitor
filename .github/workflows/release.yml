@@ -1,0 +1,107 @@
+name: Release RenPet
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-android:
+    name: Android APK
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - run: flutter pub get
+      - run: flutter build apk --release
+      - name: Rename APK
+        run: |
+          mkdir -p dist
+          cp build/app/outputs/flutter-apk/app-release.apk dist/RenPet-Android.apk
+      - uses: actions/upload-artifact@v4
+        with:
+          name: RenPet-Android
+          path: dist/RenPet-Android.apk
+
+  build-macos:
+    name: macOS App
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - run: flutter pub get
+      - run: flutter build macos --release
+      - name: Zip app
+        run: |
+          mkdir -p dist
+          ditto -c -k --sequesterRsrc --keepParent \
+            build/macos/Build/Products/Release/RenPet.app \
+            dist/RenPet-macOS.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: RenPet-macOS
+          path: dist/RenPet-macOS.zip
+
+  build-firmware:
+    name: Arduino Firmware
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Arduino CLI
+        uses: arduino/setup-arduino-cli@v2
+      - name: Install AVR core and libraries
+        run: |
+          arduino-cli core update-index
+          arduino-cli core install arduino:avr
+          arduino-cli lib install "DHT sensor library"
+          arduino-cli lib install "Adafruit Unified Sensor"
+      - name: Compile Nano firmware
+        run: |
+          mkdir -p dist
+          arduino-cli compile \
+            --fqbn arduino:avr:nano:cpu=atmega328old \
+            --output-dir dist \
+            arduino/tamagotchi_station
+          cp arduino/tamagotchi_station/tamagotchi_station.ino dist/RenPet-firmware.ino
+          cp dist/tamagotchi_station.ino.hex dist/RenPet-Nano-old-bootloader.hex
+      - uses: actions/upload-artifact@v4
+        with:
+          name: RenPet-Firmware
+          path: |
+            dist/RenPet-firmware.ino
+            dist/RenPet-Nano-old-bootloader.hex
+
+  release:
+    name: Publish GitHub Release
+    needs: [build-android, build-macos, build-firmware]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          generate_release_notes: true
+          body: |
+            RenPet release.
+
+            Assets:
+            - RenPet-Android.apk
+            - RenPet-macOS.zip
+            - RenPet-firmware.ino
+            - RenPet-Nano-old-bootloader.hex
+
+            Firmware upload: Arduino Nano cannot be safely updated over HM-10 without an OTA bootloader/reset circuit. Use USB + Arduino IDE/CLI for the included sketch or HEX.

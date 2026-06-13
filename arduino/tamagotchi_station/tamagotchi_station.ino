@@ -8,6 +8,8 @@
 // HW-483 button: S -> D2, + -> 5V, - -> GND
 // HM-10 BLE: TXD -> D11, RXD -> D12 through a voltage divider, GND -> GND, VCC -> 5V/3.3V per module board
 
+const char FIRMWARE_VERSION[] = "1.2.0";
+
 constexpr byte BUTTON_PIN = 2;
 constexpr byte DHT_PIN = 3;
 constexpr byte BLE_RX_PIN = 11;  // Arduino receives from HM-10 TXD.
@@ -181,10 +183,7 @@ void setup() {
 
   lcd.setAddress(detectLcdAddress());
   lcd.begin();
-  lcd.setCursor(0, 0);
-  lcd.print(F("Arduino PetLink"));
-  lcd.setCursor(0, 1);
-  lcd.print(F("Starting..."));
+  drawBootAnimation();
 
   sendSnapshot();
 }
@@ -320,6 +319,28 @@ void handleCommand(const char* command) {
   if (strcmp(command, "PING") == 0) {
     sendSnapshot();
   }
+}
+
+void drawBootAnimation() {
+  static const char* frames[] = { "(o_o)", "(^_^)", "(^o^)", "(^_^)" };
+  for (byte step = 0; step < 8; step++) {
+    lcd.clear();
+    lcd.setCursor(0, 0);
+    lcd.print(F("RenPet "));
+    lcd.print(frames[step % 4]);
+    lcd.setCursor(0, 1);
+    for (byte i = 0; i < LCD_COLS; i++) {
+      lcd.print(i <= step * 2 ? char(255) : ' ');
+    }
+    delay(180);
+  }
+  lcd.clear();
+  lcd.setCursor(0, 0);
+  lcd.print(F("RenPet ready"));
+  lcd.setCursor(0, 1);
+  lcd.print(F("FW "));
+  lcd.print(FIRMWARE_VERSION);
+  delay(650);
 }
 
 void readSensor() {
@@ -567,6 +588,8 @@ void sendSnapshot() {
   ble.print(happiness);
   ble.print(F(",\"screen\":\""));
   ble.print(screenName());
+  ble.print(F("\",\"fw\":\""));
+  ble.print(FIRMWARE_VERSION);
   ble.println(F("\"}"));
 }
 

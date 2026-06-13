@@ -27,7 +27,7 @@
 	<key>NSMainNibFile</key>
 	<string>MainMenu</string>
 	<key>NSBluetoothAlwaysUsageDescription</key>
-	<string>Arduino Pet Link uses Bluetooth LE to receive sensor and Tamagotchi data from the HM-10 module.</string>
+	<string>RenPet uses Bluetooth LE to receive sensor and Tamagotchi data from the HM-10 module.</string>
 	<key>NSPrincipalClass</key>
 	<string>NSApplication</string>
 </dict>
