@@ -7,6 +7,7 @@ void main() {
 
     expect(find.text('Arduino Pet Link'), findsWidgets);
     expect(find.text('Тамагочи'), findsOneWidget);
-    expect(find.text('HM-10 устройства'), findsOneWidget);
+    expect(find.text('Обзор'), findsOneWidget);
+    expect(find.text('Настройки'), findsOneWidget);
   });
 }
