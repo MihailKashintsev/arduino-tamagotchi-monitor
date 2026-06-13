@@ -145,6 +145,7 @@ float temperatureC = NAN;
 float humidityPercent = NAN;
 byte hunger = 76;
 byte happiness = 82;
+bool lcdRussian = true;
 bool weatherSynced = false;
 char weatherCity[17] = "No city";
 float weatherTempC = NAN;
@@ -309,6 +310,13 @@ void handleCommand(const char* command) {
     return;
   }
 
+  if (strncmp(command, "LANG:", 5) == 0) {
+    lcdRussian = strcmp(command + 5, "EN") != 0;
+    drawCurrentScreen();
+    sendSnapshot();
+    return;
+  }
+
   if (strcmp(command, "PING") == 0) {
     sendSnapshot();
   }
@@ -368,13 +376,17 @@ void drawCurrentScreen() {
 }
 
 void drawClimateScreen() {
-  loadClimateGlyphs();
   lcd.setCursor(0, 0);
-  lcd.write(byte(0));  // T
-  lcd.write(byte(1));  // e
-  lcd.write(byte(2));  // m
-  lcd.write(byte(3));  // p
-  lcd.print(F(": "));
+  if (lcdRussian) {
+    loadClimateGlyphs();
+    lcd.write(byte(0));  // T
+    lcd.write(byte(1));  // e
+    lcd.write(byte(2));  // m
+    lcd.write(byte(3));  // p
+    lcd.print(F(": "));
+  } else {
+    lcd.print(F("Temp: "));
+  }
   if (isnan(temperatureC)) {
     lcd.print(F("--.-"));
   } else {
@@ -383,11 +395,15 @@ void drawClimateScreen() {
   lcd.print(F(" C"));
 
   lcd.setCursor(0, 1);
-  lcd.write(byte(4));  // V
-  lcd.write(byte(5));  // l
-  lcd.write(byte(6));  // zh
-  lcd.write(byte(7));  // n
-  lcd.print(F(":  "));
+  if (lcdRussian) {
+    lcd.write(byte(4));  // V
+    lcd.write(byte(5));  // l
+    lcd.write(byte(6));  // zh
+    lcd.write(byte(7));  // n
+    lcd.print(F(":  "));
+  } else {
+    lcd.print(F("Hum:  "));
+  }
   if (isnan(humidityPercent)) {
     lcd.print(F("--"));
   } else {
@@ -397,16 +413,20 @@ void drawClimateScreen() {
 }
 
 void drawPetScreen() {
-  loadPetGlyphs();
   lcd.setCursor(0, 0);
-  lcd.write(byte(0));  // P
-  lcd.write(byte(1));  // i
-  lcd.write(byte(2));  // t
-  lcd.write(byte(3));  // o
-  lcd.write(byte(4));  // m
-  lcd.write(byte(5));  // e
-  lcd.write(byte(6));  // ts
-  lcd.print(F(" "));
+  if (lcdRussian) {
+    loadPetGlyphs();
+    lcd.write(byte(0));  // P
+    lcd.write(byte(1));  // i
+    lcd.write(byte(2));  // t
+    lcd.write(byte(3));  // o
+    lcd.write(byte(4));  // m
+    lcd.write(byte(5));  // e
+    lcd.write(byte(6));  // ts
+    lcd.print(F(" "));
+  } else {
+    lcd.print(F("Pet "));
+  }
   lcd.print((hunger < 30 || happiness < 30) ? F(":(") : F(":)"));
 
   lcd.setCursor(0, 1);
@@ -417,7 +437,6 @@ void drawPetScreen() {
 }
 
 void drawClockScreen() {
-  loadClockGlyphs();
   int year;
   byte month;
   byte day;
@@ -427,12 +446,17 @@ void drawClockScreen() {
   getClock(year, month, day, hour, minute, second);
 
   lcd.setCursor(0, 0);
-  lcd.write(byte(0));  // V
-  lcd.write(byte(1));  // r
-  lcd.write(byte(2));  // e
-  lcd.write(byte(3));  // m
-  lcd.write(byte(4));  // ya
-  lcd.print(F(" "));
+  if (lcdRussian) {
+    loadClockGlyphs();
+    lcd.write(byte(0));  // V
+    lcd.write(byte(1));  // r
+    lcd.write(byte(2));  // e
+    lcd.write(byte(3));  // m
+    lcd.write(byte(4));  // ya
+    lcd.print(F(" "));
+  } else {
+    lcd.print(F("Time "));
+  }
   printTwoDigits(lcd, hour);
   lcd.print(F(":"));
   printTwoDigits(lcd, minute);
@@ -443,11 +467,15 @@ void drawClockScreen() {
   if (!clockSynced) {
     lcd.print(F("Sync from app"));
   } else {
-    lcd.write(byte(5));  // D
-    lcd.write(byte(6));  // a
-    lcd.write(byte(7));  // t
-    lcd.write(byte(6));  // a
-    lcd.print(F(" "));
+    if (lcdRussian) {
+      lcd.write(byte(5));  // D
+      lcd.write(byte(6));  // a
+      lcd.write(byte(7));  // t
+      lcd.write(byte(6));  // a
+      lcd.print(F(" "));
+    } else {
+      lcd.print(F("Date "));
+    }
     printTwoDigits(lcd, day);
     lcd.print(F("."));
     printTwoDigits(lcd, month);
@@ -457,17 +485,21 @@ void drawClockScreen() {
 }
 
 void drawWeatherScreen() {
-  loadWeatherGlyphs();
   lcd.setCursor(0, 0);
   if (weatherSynced) {
     lcd.print(weatherCity);
   } else {
-    lcd.write(byte(0));  // P
-    lcd.write(byte(1));  // o
-    lcd.write(byte(2));  // g
-    lcd.write(byte(1));  // o
-    lcd.write(byte(3));  // d
-    lcd.write(byte(4));  // a
+    if (lcdRussian) {
+      loadWeatherGlyphs();
+      lcd.write(byte(0));  // P
+      lcd.write(byte(1));  // o
+      lcd.write(byte(2));  // g
+      lcd.write(byte(1));  // o
+      lcd.write(byte(3));  // d
+      lcd.write(byte(4));  // a
+    } else {
+      lcd.print(F("Weather"));
+    }
   }
 
   lcd.setCursor(0, 1);
