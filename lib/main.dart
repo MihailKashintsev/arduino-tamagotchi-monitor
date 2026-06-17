@@ -10,7 +10,7 @@ import 'package:intl/intl.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:url_launcher/url_launcher.dart';
 
-const String appVersion = '1.2.0';
+const String appVersion = '1.2.1';
 const String githubRepo = 'MihailKashintsev/arduino-tamagotchi-monitor';
 
 void main() {
@@ -139,6 +139,11 @@ class AppStrings {
   String get scanEmpty => isRu
       ? 'Нажмите поиск и включите питание Arduino с HM-10 рядом.'
       : 'Press scan and power Arduino with HM-10 nearby.';
+  String get allBleDevices => isRu
+      ? 'Показываю все BLE-устройства. Выберите HM-10, TechLeaf, HMSoft или устройство без имени с сильным RSSI.'
+      : 'Showing all BLE devices. Choose HM-10, TechLeaf, HMSoft, or an unnamed device with strong RSSI.';
+  String get likelyHm10 => isRu ? 'похоже на HM-10' : 'likely HM-10';
+  String get bleDevice => isRu ? 'BLE-устройство' : 'BLE device';
   String get unnamedHm10 => isRu ? 'HM-10 без имени' : 'Unnamed HM-10';
   String get ready => isRu ? 'Готово' : 'Ready';
   String get connect => isRu ? 'Подключить' : 'Connect';
@@ -343,8 +348,15 @@ class _MonitorPageState extends State<MonitorPage> {
     _weatherStatus = widget.strings.weatherHint;
     _updateStatus = widget.strings.noReleaseYet;
     _scanSubscription = FlutterBluePlus.scanResults.listen((results) {
-      final filtered = results.where(_isLikelyHm10).toList()
-        ..sort((a, b) => b.rssi.compareTo(a.rssi));
+      final filtered = results.toList()
+        ..sort((a, b) {
+          final aLikely = _isLikelyHm10(a);
+          final bLikely = _isLikelyHm10(b);
+          if (aLikely != bLikely) {
+            return bLikely ? 1 : -1;
+          }
+          return b.rssi.compareTo(a.rssi);
+        });
       if (mounted) {
         setState(() {
           _scanResults
@@ -389,8 +401,10 @@ class _MonitorPageState extends State<MonitorPage> {
     );
     return hasHm10Service ||
         name.contains('hm') ||
+        name.contains('techleaf') ||
         name.contains('arduino') ||
         advertisementName.contains('hm') ||
+        advertisementName.contains('techleaf') ||
         advertisementName.contains('arduino');
   }
 
@@ -747,6 +761,7 @@ class _MonitorPageState extends State<MonitorPage> {
       onOpenGithub: _openGithub,
       onCheckUpdates: _checkForUpdates,
       onOpenLatestRelease: _openLatestRelease,
+      isLikelyHm10: _isLikelyHm10,
       onLanguageChanged: widget.onLanguageChanged,
       onLcdLanguageChanged: widget.onLcdLanguageChanged,
       onThemeChanged: widget.onThemeChanged,
@@ -795,6 +810,7 @@ class _ShellState {
     required this.onOpenGithub,
     required this.onCheckUpdates,
     required this.onOpenLatestRelease,
+    required this.isLikelyHm10,
     required this.onLanguageChanged,
     required this.onLcdLanguageChanged,
     required this.onThemeChanged,
@@ -830,6 +846,7 @@ class _ShellState {
   final VoidCallback onOpenGithub;
   final VoidCallback onCheckUpdates;
   final VoidCallback onOpenLatestRelease;
+  final bool Function(ScanResult result) isLikelyHm10;
   final ValueChanged<AppLanguage> onLanguageChanged;
   final ValueChanged<LcdLanguage> onLcdLanguageChanged;
   final ValueChanged<AppThemeChoice> onThemeChanged;
@@ -1552,6 +1569,11 @@ class _DevicesScreen extends StatelessWidget {
               ),
               const SizedBox(height: 12),
               if (state.isScanning) const LinearProgressIndicator(),
+              const SizedBox(height: 10),
+              Text(
+                state.strings.allBleDevices,
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
               if (!state.isScanning && state.scanResults.isEmpty)
                 Padding(
                   padding: const EdgeInsets.symmetric(vertical: 40),
@@ -1563,6 +1585,7 @@ class _DevicesScreen extends StatelessWidget {
               ...state.scanResults.map(
                 (result) => _DeviceRow(
                   result: result,
+                  likelyHm10: state.isLikelyHm10(result),
                   selected:
                       state.connected &&
                       state.scanResults.any(
@@ -1765,6 +1788,7 @@ class _UpdatePanel extends StatelessWidget {
 class _DeviceRow extends StatelessWidget {
   const _DeviceRow({
     required this.result,
+    required this.likelyHm10,
     required this.selected,
     required this.isConnecting,
     required this.strings,
@@ -1772,6 +1796,7 @@ class _DeviceRow extends StatelessWidget {
   });
 
   final ScanResult result;
+  final bool likelyHm10;
   final bool selected;
   final bool isConnecting;
   final AppStrings strings;
@@ -1779,9 +1804,12 @@ class _DeviceRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final name = result.device.platformName.trim().isEmpty
-        ? strings.unnamedHm10
-        : result.device.platformName.trim();
+    final name = result.device.platformName.trim().isNotEmpty
+        ? result.device.platformName.trim()
+        : result.advertisementData.advName.trim().isNotEmpty
+        ? result.advertisementData.advName.trim()
+        : strings.unnamedHm10;
+    final typeHint = likelyHm10 ? strings.likelyHm10 : strings.bleDevice;
     return Container(
       margin: const EdgeInsets.only(top: 10),
       padding: const EdgeInsets.all(14),
@@ -1806,7 +1834,9 @@ class _DeviceRow extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(height: 3),
-                Text('${result.device.remoteId.str} · RSSI ${result.rssi}'),
+                Text(
+                  '$typeHint · ${result.device.remoteId.str} · RSSI ${result.rssi}',
+                ),
               ],
             ),
           ),
